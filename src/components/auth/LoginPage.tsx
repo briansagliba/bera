@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AlertCircle, LogIn, UserPlus } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
 interface LoginPageProps {
   onLoginSuccess?: (user: any) => void;
@@ -24,10 +25,8 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess = () => {} }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Login form state
   const [loginData, setLoginData] = useState({ email: "", password: "" });
 
-  // Registration form state
   const [registerData, setRegisterData] = useState({
     name: "",
     email: "",
@@ -39,7 +38,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess = () => {} }) => {
   const handleInputChange =
     (setState: React.Dispatch<React.SetStateAction<any>>) =>
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      setState((prev: any) => ({ ...prev, [e.target.name]: e.target.value }));
+      setState((prev) => ({ ...prev, [e.target.name]: e.target.value }));
     };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -48,20 +47,19 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess = () => {} }) => {
     setError(null);
 
     try {
-      const registeredUsers = JSON.parse(
-        localStorage.getItem("registeredUsers") || "[]",
-      );
-      const user = registeredUsers.find(
-        (u: any) =>
-          u.email === loginData.email && u.password === loginData.password,
-      );
+      const { data: user, error: fetchError } = await supabase
+        .from("users")
+        .select("*")
+        .eq("email", loginData.email)
+        .eq("password", loginData.password)
+        .single();
 
-      if (user) {
-        onLoginSuccess(user);
-        navigate("/");
-      } else {
+      if (fetchError || !user) {
         throw new Error("Invalid email or password.");
       }
+
+      onLoginSuccess(user);
+      navigate("/");
     } catch (err: any) {
       setError(err.message || "Login failed.");
     } finally {
@@ -85,14 +83,17 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess = () => {} }) => {
         throw new Error("All fields are required.");
       }
 
-      const newUser = { ...registerData, role: "admin" };
-      const registeredUsers = JSON.parse(
-        localStorage.getItem("registeredUsers") || "[]",
-      );
-      localStorage.setItem(
-        "registeredUsers",
-        JSON.stringify([...registeredUsers, newUser]),
-      );
+      const { error: insertError } = await supabase.from("users").insert({
+        email: registerData.email,
+        name: registerData.name,
+        phone: registerData.phone,
+        password: registerData.password, // ⚠️ Storing raw passwords, not safe for production
+        role: "admin",
+      });
+
+      if (insertError) {
+        throw new Error(insertError.message || "Failed to register user.");
+      }
 
       setActiveTab("login");
       setRegisterData({

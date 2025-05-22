@@ -1,5 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { getEmergencies, Emergency } from "@/lib/database";
+import {
+  getEmergencies,
+  Emergency,
+  getUserById,
+  getRequestors,
+  updateEmergencyStatus,
+  assignResponderToEmergency,
+} from "@/lib/database";
 import { Helmet } from "react-helmet";
 import Navbar from "../layout/Navbar";
 import BottomBar from "../ui/bottombar";
@@ -41,58 +48,14 @@ interface EmergencyRecord {
   requestorName?: string;
   requestorPhone?: string;
   requestorImage?: string;
+  responderId?: string;
+  responderName?: string;
 }
 
 const EmergencyHistory: React.FC<EmergencyHistoryProps> = ({ user }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
-  const [emergencies, setEmergencies] = useState<EmergencyRecord[]>([
-    {
-      id: "e1",
-      type: "medical",
-      status: "pending",
-      address: "123 Main St, Bilar",
-      location: { lat: 9.6282, lng: 124.0935 },
-      reportedAt: "2023-06-15T10:30:00Z",
-      priority: "high",
-      requestorId: "req1",
-      requestorName: "Juan Dela Cruz",
-      requestorPhone: "+63 912 345 6789",
-      requestorImage:
-        "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=300&q=80",
-      description:
-        "Patient experiencing severe chest pain and difficulty breathing.",
-    },
-    {
-      id: "e2",
-      type: "fire",
-      status: "responding",
-      address: "456 Oak Ave, Bilar",
-      location: { lat: 9.6312, lng: 124.0965 },
-      reportedAt: "2023-06-15T11:15:00Z",
-      priority: "high",
-      requestorId: "req2",
-      requestorName: "Armando C. Jumawid",
-      requestorPhone: "+63 923 456 7890",
-      requestorImage:
-        "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=300&q=80",
-      description:
-        "Building fire in residential area, multiple floors affected.",
-    },
-    {
-      id: "e3",
-      type: "police",
-      status: "resolved",
-      address: "789 Pine St, Bilar",
-      location: { lat: 9.6252, lng: 124.0915 },
-      reportedAt: "2023-06-15T12:00:00Z",
-      priority: "medium",
-      requestorId: "req3",
-      requestorName: "Maria Santos",
-      requestorPhone: "+63 934 567 8901",
-      description: "Suspicious activity reported in neighborhood.",
-    },
-  ]);
+  const [emergencies, setEmergencies] = useState<EmergencyRecord[]>([]);
 
   const [selectedEmergency, setSelectedEmergency] =
     useState<EmergencyRecord | null>(null);
@@ -108,19 +71,79 @@ const EmergencyHistory: React.FC<EmergencyHistoryProps> = ({ user }) => {
         const data = await getEmergencies();
         if (data.length > 0) {
           // Convert database format to component format
-          const formattedData = data.map((emergency) => ({
-            id: emergency.id,
-            type: emergency.type,
-            status: emergency.status,
-            address: emergency.address,
-            location: emergency.location || { lat: 9.6282, lng: 124.0935 },
-            reportedAt: emergency.reported_at,
-            priority: emergency.priority,
-            description: emergency.description,
-            requestorId: emergency.user_id,
-            requestorName: "User", // Would need to fetch user details in a real app
-            requestorPhone: "", // Would need to fetch user details in a real app
-          }));
+          const formattedData = await Promise.all(
+            data.map(async (emergency) => {
+              // Try to get user details for the requestor
+              let requestorName = "Unknown User";
+              let requestorPhone = "";
+              let requestorImage = "";
+
+              try {
+                // First get all requestors to find the one matching this emergency
+                const requestors = await getRequestors();
+
+                // Try to match by user_id first
+                let requestor = requestors.find(
+                  (r) => r.user_id === emergency.user_id,
+                );
+
+                // If not found, try to match directly by id (emergency.user_id might be the requestor.id)
+                if (!requestor) {
+                  requestor = requestors.find(
+                    (r) => r.id === emergency.user_id,
+                  );
+                }
+
+                if (requestor) {
+                  // If we found a matching requestor, use their details
+                  requestorName = requestor.name || "Unknown User";
+                  requestorPhone = requestor.phone || "";
+                  console.log(
+                    `Found requestor for emergency ${emergency.id}: ${requestorName}`,
+                  );
+                } else {
+                  // If no requestor found, try to get basic user details
+                  const user = await getUserById(emergency.user_id);
+                  if (user) {
+                    requestorName = user.name || "Unknown User";
+                    requestorPhone = user.phone || "";
+                    console.log(
+                      `Found user for emergency ${emergency.id}: ${requestorName}`,
+                    );
+                  } else {
+                    console.log(
+                      `No user or requestor found for emergency ${emergency.id} with user_id ${emergency.user_id}`,
+                    );
+                  }
+                }
+              } catch (err) {
+                console.error("Error fetching requestor details:", err);
+              }
+
+              return {
+                id: emergency.id,
+                type: emergency.type,
+                status: emergency.status,
+                address: emergency.address || "Unknown location",
+                location:
+                  typeof emergency.location === "object"
+                    ? emergency.location
+                    : { lat: 9.6282, lng: 124.0935 },
+                reportedAt: emergency.reported_at || new Date().toISOString(),
+                priority: emergency.priority,
+                description: emergency.description || "",
+                requestorId: emergency.user_id,
+                requestorName,
+                requestorPhone,
+                requestorImage:
+                  requestorImage ||
+                  `https://api.dicebear.com/7.x/avataaars/svg?seed=${emergency.user_id}`,
+                responderId: emergency.responder_id,
+                responderName: emergency.responder || "",
+              };
+            }),
+          );
+
           if (formattedData.length > 0) {
             setEmergencies(formattedData);
           }
@@ -151,26 +174,96 @@ const EmergencyHistory: React.FC<EmergencyHistoryProps> = ({ user }) => {
     setShowEmergencyDetails(true);
   };
 
-  const handleUpdateEmergencyStatus = (status: string) => {
+  const handleUpdateEmergencyStatus = async (status: string) => {
     if (selectedEmergency) {
-      // In a real app, this would call an API to update the status
-      console.log(
-        `Updating emergency ${selectedEmergency.id} status to ${status}`,
-      );
+      try {
+        console.log(
+          `Updating emergency ${selectedEmergency.id} status to ${status}`,
+        );
 
-      // For demo purposes, update the local state
-      const updatedEmergencies = emergencies.map((e) =>
-        e.id === selectedEmergency.id ? { ...e, status } : e,
-      );
-      setEmergencies(updatedEmergencies);
-      setSelectedEmergency({ ...selectedEmergency, status });
-      alert(`Emergency status updated to: ${status}`);
+        setIsLoading(true);
+
+        // Update the emergency status in the database
+        const success = await updateEmergencyStatus(
+          selectedEmergency.id,
+          status as any,
+        );
+
+        if (success) {
+          // Update the local state
+          const updatedEmergencies = emergencies.map((e) =>
+            e.id === selectedEmergency.id ? { ...e, status } : e,
+          );
+          setEmergencies(updatedEmergencies);
+          setSelectedEmergency({ ...selectedEmergency, status });
+
+          // Close the dialog after successful update
+          setShowEmergencyDetails(false);
+
+          // Show success message
+          alert(`Emergency status updated to: ${status}`);
+
+          // Reload the page to refresh all data
+          window.location.reload();
+        } else {
+          alert("Failed to update emergency status. Please try again.");
+        }
+      } catch (error) {
+        console.error("Error updating emergency status:", error);
+        alert("An error occurred while updating the emergency status.");
+      } finally {
+        setIsLoading(false);
+      }
     }
   };
 
-  const handleAssignResponder = () => {
-    // In a real app, this would open a dialog to select a responder
-    alert("This would open a responder selection dialog");
+  const handleAssignResponder = async (
+    emergencyId: string,
+    responderId: string,
+  ) => {
+    try {
+      console.log(
+        `EmergencyHistory: Attempting to assign responder ${responderId} to emergency ${emergencyId}`,
+      );
+
+      // Show loading indicator
+      setIsLoading(true);
+
+      const success = await assignResponderToEmergency(
+        emergencyId,
+        responderId,
+      );
+
+      if (success) {
+        console.log("Assignment successful in EmergencyHistory");
+
+        // Update the local state
+        const updatedEmergencies = emergencies.map((e) =>
+          e.id === emergencyId ? { ...e, status: "responding" } : e,
+        );
+        setEmergencies(updatedEmergencies);
+
+        if (selectedEmergency && selectedEmergency.id === emergencyId) {
+          setSelectedEmergency({ ...selectedEmergency, status: "responding" });
+        }
+
+        // Close the dialog after successful assignment
+        setShowEmergencyDetails(false);
+
+        alert("Responder successfully assigned to the emergency.");
+
+        // Force reload the page to refresh all data
+        window.location.reload();
+      } else {
+        console.error("Assignment returned false in EmergencyHistory");
+        alert("Failed to assign responder. Please try again.");
+      }
+    } catch (error) {
+      console.error("Error assigning responder in EmergencyHistory:", error);
+      alert("An error occurred while assigning the responder.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const getEmergencyIcon = (type: string) => {
@@ -280,6 +373,12 @@ const EmergencyHistory: React.FC<EmergencyHistoryProps> = ({ user }) => {
                               <span className="font-medium">Requestor:</span>{" "}
                               {emergency.requestorName}
                             </p>
+                            {emergency.responderName && (
+                              <p className="text-sm">
+                                <span className="font-medium">Responder:</span>{" "}
+                                {emergency.responderName}
+                              </p>
+                            )}
                             <p className="text-sm">
                               <span className="font-medium">Description:</span>{" "}
                               {emergency.description}
@@ -367,8 +466,18 @@ const EmergencyHistory: React.FC<EmergencyHistoryProps> = ({ user }) => {
             });
             setShowMessageDialog(true);
           }}
-          onAssignResponder={handleAssignResponder}
-          onUpdateStatus={handleUpdateEmergencyStatus}
+          onAssignResponder={(responderId) => {
+            console.log(
+              `EmergencyHistory: onAssignResponder called with responderId ${responderId}`,
+            );
+            handleAssignResponder(selectedEmergency.id, responderId);
+          }}
+          onUpdateStatus={(status) => {
+            console.log(
+              `EmergencyHistory: onUpdateStatus called with status ${status}`,
+            );
+            handleUpdateEmergencyStatus(status);
+          }}
         />
       )}
 

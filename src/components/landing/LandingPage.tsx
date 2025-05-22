@@ -10,7 +10,7 @@ const LandingPage = () => {
       {/* Background Image */}
       <div
         className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-        style={{ backgroundImage: `url("/background.jpg")` }}
+        style={{ backgroundImage: `url("/web_bg.jpg")` }}
       ></div>
 
       {/* Dark Gradient Overlay */}
@@ -28,7 +28,7 @@ const LandingPage = () => {
       {/* Main Content */}
       <div className="relative flex-1 flex flex-col items-center justify-center text-white text-center p-6">
         <h1 className="text-5xl md:text-7xl font-extrabold mb-4 animate-fade-in">
-          Bilar Emergency Response
+          Bilar Emergency Response Application
         </h1>
         <p className="text-lg md:text-2xl max-w-3xl mx-auto mb-6 animate-fade-in delay-200">
           A fast and efficient emergency response system designed to safeguard

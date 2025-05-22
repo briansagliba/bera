@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Helmet } from "react-helmet";
 import { useNavigate } from "react-router-dom";
 import Navbar from "../layout/Navbar";
@@ -6,6 +6,13 @@ import BottomBar from "../ui/bottombar";
 import DashboardGrid from "./DashboardGrid";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import Chatbot from "../chatbot/Chatbot";
+import { MessageSquareText } from "lucide-react";
+import {
+  getRequestorCount,
+  getResponderCount,
+  getActiveEmergencyCount,
+} from "@/lib/database";
 
 interface DashboardPageProps {
   user?: {
@@ -22,6 +29,35 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
   },
 }) => {
   const navigate = useNavigate();
+  const [isChatbotOpen, setIsChatbotOpen] = useState(false);
+  const [requestorCount, setRequestorCount] = useState<number>(0);
+  const [responderCount, setResponderCount] = useState<number>(0);
+  const [activeEmergencyCount, setActiveEmergencyCount] = useState<number>(0);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  // Fetch dashboard statistics
+  useEffect(() => {
+    const fetchDashboardStats = async () => {
+      setIsLoading(true);
+      try {
+        const [requestors, responders, activeEmergencies] = await Promise.all([
+          getRequestorCount(),
+          getResponderCount(),
+          getActiveEmergencyCount(),
+        ]);
+
+        setRequestorCount(requestors);
+        setResponderCount(responders);
+        setActiveEmergencyCount(activeEmergencies);
+      } catch (error) {
+        console.error("Error fetching dashboard statistics:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchDashboardStats();
+  }, []);
 
   // Handlers
   const handleEmergencySelect = (emergencyId: string) => {
@@ -63,7 +99,11 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
                 <CardTitle className="text-lg">Requestors</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold">24</div>
+                {isLoading ? (
+                  <div className="text-3xl font-bold">Loading...</div>
+                ) : (
+                  <div className="text-3xl font-bold">{requestorCount}</div>
+                )}
                 <p className="text-sm text-muted-foreground">
                   Total registered requestors
                 </p>
@@ -84,7 +124,11 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
                 <CardTitle className="text-lg">Responders</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold">12</div>
+                {isLoading ? (
+                  <div className="text-3xl font-bold">Loading...</div>
+                ) : (
+                  <div className="text-3xl font-bold">{responderCount}</div>
+                )}
                 <p className="text-sm text-muted-foreground">
                   Active emergency responders
                 </p>
@@ -105,7 +149,13 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
                 <CardTitle className="text-lg">Active Emergencies</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold">5</div>
+                {isLoading ? (
+                  <div className="text-3xl font-bold">Loading...</div>
+                ) : (
+                  <div className="text-3xl font-bold">
+                    {activeEmergencyCount}
+                  </div>
+                )}
                 <p className="text-sm text-muted-foreground">
                   Ongoing emergency situations
                 </p>
@@ -132,6 +182,18 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
       </main>
 
       <BottomBar user={user} />
+
+      {/* Chatbot */}
+      <Chatbot isOpen={isChatbotOpen} onClose={() => setIsChatbotOpen(false)} />
+
+      {/* Chatbot Toggle Button */}
+      <Button
+        onClick={() => setIsChatbotOpen(!isChatbotOpen)}
+        className="fixed bottom-20 right-4 rounded-full h-12 w-12 shadow-lg"
+        size="icon"
+      >
+        <MessageSquareText size={20} />
+      </Button>
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -13,6 +13,13 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   AlertTriangle,
   Ambulance,
   Clock,
@@ -22,7 +29,9 @@ import {
   Phone,
   Shield,
   User,
+  Loader2,
 } from "lucide-react";
+import { getResponders } from "@/lib/database";
 
 interface EmergencyDetailsDialogProps {
   open: boolean;
@@ -40,6 +49,8 @@ interface EmergencyDetailsDialogProps {
     requestorName?: string;
     requestorPhone?: string;
     requestorImage?: string;
+    responderId?: string;
+    responderName?: string;
   };
   responder?: {
     id: string;
@@ -51,7 +62,7 @@ interface EmergencyDetailsDialogProps {
   };
   onMessageRequestor?: () => void;
   onMessageResponder?: () => void;
-  onAssignResponder?: () => void;
+  onAssignResponder?: (responderId: string) => void;
   onUpdateStatus?: (status: string) => void;
 }
 
@@ -65,6 +76,65 @@ const EmergencyDetailsDialog: React.FC<EmergencyDetailsDialogProps> = ({
   onAssignResponder = () => {},
   onUpdateStatus = () => {},
 }) => {
+  const [availableResponders, setAvailableResponders] = useState<
+    Array<{ id: string; name: string; type: string; status: string }>
+  >([]);
+  const [selectedResponderId, setSelectedResponderId] = useState<string>("");
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [loadingError, setLoadingError] = useState<string>("");
+
+  useEffect(() => {
+    if (open) {
+      loadAvailableResponders();
+    }
+  }, [open]);
+
+  const loadAvailableResponders = async () => {
+    try {
+      setIsLoading(true);
+      setLoadingError("");
+      const responders = await getResponders();
+      if (responder) {
+        setAvailableResponders(responders);
+      } else {
+        const availableOnes = responders.filter(
+          (r) => r.status === "available",
+        );
+        setAvailableResponders(availableOnes);
+        if (availableOnes.length === 0) {
+          setLoadingError("No available responders found");
+        }
+      }
+      setIsLoading(false);
+    } catch (error) {
+      setLoadingError("Failed to load responders. Please try again.");
+      setIsLoading(false);
+    }
+  };
+
+  const handleAssignResponder = async () => {
+    if (selectedResponderId) {
+      try {
+        setIsLoading(true);
+        setLoadingError("");
+
+        // Call the onAssignResponder function with the selected responder ID
+        await onAssignResponder(selectedResponderId);
+
+        setSelectedResponderId("");
+        // Close the dialog after successful assignment
+        onOpenChange(false);
+      } catch (error) {
+        console.error("Error assigning responder:", error);
+        setLoadingError("Failed to assign responder. Please try again.");
+      } finally {
+        setIsLoading(false);
+      }
+    } else {
+      setLoadingError("Please select a responder first.");
+    }
+  };
+
   const getEmergencyIcon = (type: string) => {
     switch (type) {
       case "medical":
@@ -202,160 +272,66 @@ const EmergencyDetailsDialog: React.FC<EmergencyDetailsDialogProps> = ({
                 )}
               </Avatar>
               <div>
-                <h3 className="text-lg font-medium">
-                  {emergency.requestorName || "Unknown Requestor"}
+                <h3 className="text-lg font-semibold">
+                  {emergency.requestorName}
                 </h3>
-                <p className="text-sm text-muted-foreground flex items-center gap-1">
-                  <User className="h-3.5 w-3.5" /> Requestor ID:{" "}
-                  {emergency.requestorId || "Unknown"}
+                <p className="text-sm text-gray-500">
+                  {emergency.requestorPhone || "No phone number provided."}
                 </p>
-                {emergency.requestorPhone && (
-                  <p className="text-sm text-muted-foreground flex items-center gap-1">
-                    <Phone className="h-3.5 w-3.5" /> {emergency.requestorPhone}
-                  </p>
-                )}
               </div>
             </div>
-
-            <div className="flex justify-end space-x-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="flex items-center gap-1"
-                onClick={onMessageRequestor}
-              >
-                <MessageSquare className="h-4 w-4" /> Message Requestor
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="flex items-center gap-1"
-                onClick={() => {
-                  window.open(`tel:${emergency.requestorPhone}`, "_blank");
-                }}
-                disabled={!emergency.requestorPhone}
-              >
-                <Phone className="h-4 w-4" /> Call Requestor
-              </Button>
-            </div>
           </TabsContent>
-
           <TabsContent value="response" className="space-y-4 py-4">
-            {responder ? (
-              <div className="space-y-4">
-                <div className="flex items-center gap-4">
-                  <Avatar className="h-16 w-16">
-                    {responder.imageUrl ? (
-                      <AvatarImage
-                        src={responder.imageUrl}
-                        alt={responder.name}
-                      />
-                    ) : (
-                      <AvatarFallback>
-                        {responder.name
-                          .split(" ")
-                          .map((n) => n[0])
-                          .join("")}
-                      </AvatarFallback>
-                    )}
-                  </Avatar>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-lg font-medium">{responder.name}</h3>
-                      <Badge
-                        className={
-                          responder.status === "available"
-                            ? "bg-green-100 text-green-800"
-                            : responder.status === "responding"
-                              ? "bg-blue-100 text-blue-800"
-                              : "bg-gray-100 text-gray-800"
-                        }
-                      >
-                        {responder.status.charAt(0).toUpperCase() +
-                          responder.status.slice(1)}
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      {responder.type} Unit
-                    </p>
-                    {responder.phone && (
-                      <p className="text-sm text-muted-foreground flex items-center gap-1">
-                        <Phone className="h-3.5 w-3.5" /> {responder.phone}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex justify-end space-x-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex items-center gap-1"
-                    onClick={onMessageResponder}
-                  >
-                    <MessageSquare className="h-4 w-4" /> Message Responder
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex items-center gap-1"
-                    onClick={() => {
-                      window.open(`tel:${responder.phone}`, "_blank");
-                    }}
-                    disabled={!responder.phone}
-                  >
-                    <Phone className="h-4 w-4" /> Call Responder
-                  </Button>
-                </div>
-
-                <div className="pt-2 border-t">
-                  <p className="text-sm font-medium mb-2">Response Timeline</p>
-                  <ScrollArea className="h-[100px]">
-                    <div className="space-y-2">
-                      <div className="flex items-start gap-2">
-                        <div className="bg-blue-100 text-blue-800 rounded-full p-1 mt-0.5">
-                          <Clock className="h-3 w-3" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium">
-                            Responder assigned
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {new Date(
-                              new Date(emergency.reportedAt).getTime() +
-                                5 * 60000,
-                            ).toLocaleString()}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <div className="bg-blue-100 text-blue-800 rounded-full p-1 mt-0.5">
-                          <Clock className="h-3 w-3" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium">
-                            Responder en route
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {new Date(
-                              new Date(emergency.reportedAt).getTime() +
-                                10 * 60000,
-                            ).toLocaleString()}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </ScrollArea>
+            {emergency.responderName ? (
+              <div className="flex items-center gap-4">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">
+                    Currently Assigned Responder:
+                  </p>
+                  <p className="text-lg font-semibold">
+                    {emergency.responderName}
+                  </p>
                 </div>
               </div>
             ) : (
-              <div className="text-center py-6">
-                <p className="text-muted-foreground mb-4">
-                  No responder assigned yet
-                </p>
-                <Button onClick={onAssignResponder}>Assign Responder</Button>
+              <div className="flex items-center gap-4">
+                <Select
+                  value={selectedResponderId}
+                  onValueChange={(value) => setSelectedResponderId(value)}
+                >
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="Select Responder" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableResponders.map((responder) => (
+                      <SelectItem key={responder.id} value={responder.id}>
+                        {responder.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             )}
+
+            <div className="space-y-2 pt-2">
+              {loadingError && (
+                <div className="text-red-600 text-sm">{loadingError}</div>
+              )}
+              {!emergency.responderName && (
+                <Button
+                  variant="outline"
+                  className="w-full sm:w-auto"
+                  onClick={handleAssignResponder}
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    "Assign Responder"
+                  )}
+                </Button>
+              )}
+            </div>
           </TabsContent>
         </Tabs>
 
@@ -363,7 +339,12 @@ const EmergencyDetailsDialog: React.FC<EmergencyDetailsDialogProps> = ({
           {emergency.status === "pending" && (
             <Button
               className="w-full sm:w-auto"
-              onClick={() => onUpdateStatus("responding")}
+              onClick={() => {
+                console.log("Mark as Responding button clicked");
+                onUpdateStatus("responding");
+                // Close dialog after status update
+                setTimeout(() => onOpenChange(false), 500);
+              }}
             >
               Mark as Responding
             </Button>
@@ -371,7 +352,12 @@ const EmergencyDetailsDialog: React.FC<EmergencyDetailsDialogProps> = ({
           {emergency.status === "responding" && (
             <Button
               className="w-full sm:w-auto"
-              onClick={() => onUpdateStatus("resolved")}
+              onClick={() => {
+                console.log("Mark as Resolved button clicked");
+                onUpdateStatus("resolved");
+                // Close dialog after status update
+                setTimeout(() => onOpenChange(false), 500);
+              }}
             >
               Mark as Resolved
             </Button>
@@ -380,7 +366,12 @@ const EmergencyDetailsDialog: React.FC<EmergencyDetailsDialogProps> = ({
             <Button
               variant="outline"
               className="w-full sm:w-auto"
-              onClick={() => onUpdateStatus("pending")}
+              onClick={() => {
+                console.log("Reopen Emergency button clicked");
+                onUpdateStatus("pending");
+                // Close dialog after status update
+                setTimeout(() => onOpenChange(false), 500);
+              }}
             >
               Reopen Emergency
             </Button>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import MessageDialog from "../messaging/MessageDialog";
+import AddUserModal from "./AddUserModal";
 import {
   getRequestors,
   getResponders,
@@ -34,55 +35,8 @@ const ManageUsers: React.FC<ManageUsersProps> = ({ user }) => {
   const [activeTab, setActiveTab] = useState("all");
 
   // Combined state for both requestors and responders
-  const [requestors, setRequestors] = useState<RequestorType[]>([
-    {
-      id: "1",
-      name: "Juan Dela Cruz",
-      email: "juandelacruz@gmail.com",
-      phone: "09276382662",
-      situation: "gsjsjsb",
-      concern: "Medical",
-      formattedDate: "4/9/2024 11:30 PM",
-      imageUrl:
-        "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=300&q=80",
-    },
-    {
-      id: "2",
-      name: "Armando C. Jumawid",
-      email: "armando.jumawid@gmail.com",
-      phone: "09066910713",
-      situation: "motorcycle accident in bisu",
-      concern: "Fire, Police",
-      formattedDate: "4/9/2024 11:42 PM",
-      imageUrl:
-        "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=300&q=80",
-    },
-  ]);
-
-  const [responders, setResponders] = useState<ResponderType[]>([
-    {
-      id: "1",
-      name: "Warlito Responder",
-      email: "responder@gmail.com",
-      phone: "09662826687",
-      concern: "No data available",
-      formattedDate: "4/9/2024 7:26 PM",
-      imageUrl:
-        "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&q=80",
-      status: "available",
-    },
-    {
-      id: "2",
-      name: "Armando Jumawid Jr.",
-      email: "armando.jumawid01@gmail.com",
-      phone: "09066910713",
-      concern: "No data available",
-      formattedDate: "4/9/2024 11:42 PM",
-      imageUrl:
-        "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=300&q=80",
-      status: "responding",
-    },
-  ]);
+  const [requestors, setRequestors] = useState<RequestorType[]>([]);
+  const [responders, setResponders] = useState<ResponderType[]>([]);
 
   // Filter based on search query and active tab
   const filteredRequestors = requestors.filter(
@@ -120,11 +74,32 @@ const ManageUsers: React.FC<ManageUsersProps> = ({ user }) => {
         const responderData = await getResponders();
 
         if (requestorData.length > 0) {
-          setRequestors(requestorData);
+          // Format dates and add image URLs for requestors
+          const formattedRequestors = requestorData.map((requestor) => ({
+            ...requestor,
+            formattedDate: new Date(
+              requestor.created_at || "",
+            ).toLocaleString(),
+            imageUrl:
+              requestor.imageUrl ||
+              `https://api.dicebear.com/7.x/avataaars/svg?seed=${requestor.id}`,
+          }));
+          setRequestors(formattedRequestors);
         }
 
         if (responderData.length > 0) {
-          setResponders(responderData);
+          // Format dates and add image URLs for responders
+          const formattedResponders = responderData.map((responder) => ({
+            ...responder,
+            formattedDate: new Date(
+              responder.created_at || "",
+            ).toLocaleString(),
+            imageUrl:
+              responder.imageUrl ||
+              `https://api.dicebear.com/7.x/avataaars/svg?seed=${responder.id}`,
+            concern: responder.type || "No data available",
+          }));
+          setResponders(formattedResponders);
         }
       } catch (error) {
         console.error("Error loading users:", error);
@@ -163,6 +138,7 @@ const ManageUsers: React.FC<ManageUsersProps> = ({ user }) => {
   };
 
   const [showMessageDialog, setShowMessageDialog] = useState(false);
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [selectedMessageRecipient, setSelectedMessageRecipient] =
     useState<any>(null);
 
@@ -224,12 +200,8 @@ const ManageUsers: React.FC<ManageUsersProps> = ({ user }) => {
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
-              <Button
-                onClick={() =>
-                  alert("Add responder functionality would open here")
-                }
-              >
-                Add Responder
+              <Button onClick={() => setShowAddUserModal(true)}>
+                Add User
               </Button>
             </div>
           </div>
@@ -687,6 +659,55 @@ const ManageUsers: React.FC<ManageUsersProps> = ({ user }) => {
           recipient={selectedMessageRecipient}
         />
       )}
+
+      {/* Add User Modal */}
+      <AddUserModal
+        open={showAddUserModal}
+        onOpenChange={setShowAddUserModal}
+        onUserAdded={() => {
+          // Refresh the user lists
+          const loadUsers = async () => {
+            try {
+              // Load both requestors and responders
+              const requestorData = await getRequestors();
+              const responderData = await getResponders();
+
+              if (requestorData.length > 0) {
+                // Format dates and add image URLs for requestors
+                const formattedRequestors = requestorData.map((requestor) => ({
+                  ...requestor,
+                  formattedDate: new Date(
+                    requestor.created_at || "",
+                  ).toLocaleString(),
+                  imageUrl:
+                    requestor.imageUrl ||
+                    `https://api.dicebear.com/7.x/avataaars/svg?seed=${requestor.id}`,
+                }));
+                setRequestors(formattedRequestors);
+              }
+
+              if (responderData.length > 0) {
+                // Format dates and add image URLs for responders
+                const formattedResponders = responderData.map((responder) => ({
+                  ...responder,
+                  formattedDate: new Date(
+                    responder.created_at || "",
+                  ).toLocaleString(),
+                  imageUrl:
+                    responder.imageUrl ||
+                    `https://api.dicebear.com/7.x/avataaars/svg?seed=${responder.id}`,
+                  concern: responder.type || "No data available",
+                }));
+                setResponders(formattedResponders);
+              }
+            } catch (error) {
+              console.error("Error loading users:", error);
+            }
+          };
+
+          loadUsers();
+        }}
+      />
     </div>
   );
 };

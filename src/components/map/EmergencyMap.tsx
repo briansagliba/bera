@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import MessageDialog from "../messaging/MessageDialog";
 import EmergencyDetailsDialog from "../emergency/EmergencyDetailsDialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,6 +29,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { useEmergencies, EmergencyLocation } from "@/hooks/useEmergencies";
+import { getResponders, assignResponderToEmergency } from "@/lib/database";
 
 interface EmergencyLocation {
   id: string;
@@ -69,7 +70,13 @@ interface EmergencyMapProps {
 
 const EmergencyMap = ({
   emergencies: emergenciesFromProps,
-  responseUnits = [
+  responseUnits: responseUnitsFromProps,
+  onEmergencySelect = () => {},
+  onUnitSelect = () => {},
+  onFilterChange = () => {},
+}: EmergencyMapProps) => {
+  // Default response units if none provided from props
+  const defaultResponseUnits = [
     {
       id: "u1",
       type: "medical",
@@ -98,15 +105,78 @@ const EmergencyMap = ({
       phone: "09662826689",
       email: "police2@bilar.gov.ph",
     },
-  ],
-  onEmergencySelect = () => {},
-  onUnitSelect = () => {},
-  onFilterChange = () => {},
-}: EmergencyMapProps) => {
+  ];
+
+  // Use response units from props if provided, otherwise use default
+  const responseUnits = responseUnitsFromProps || defaultResponseUnits;
   const { emergencies: dbEmergencies, loading: emergenciesLoading } =
     useEmergencies();
   const [activeTab, setActiveTab] = useState("map");
+  const [loadingResponders, setLoadingResponders] = useState(false);
+  const [responderUnits, setResponderUnits] = useState<ResponseUnit[]>([]);
+
+  // Use emergencies from props if provided, otherwise use from hook
   const emergencies = emergenciesFromProps || dbEmergencies;
+
+  // Track which emergencies have responders assigned to them
+  const [emergencyResponderMap, setEmergencyResponderMap] = useState<
+    Record<string, string>
+  >({});
+
+  // Fetch responders from Supabase if no response units provided from props
+  useEffect(() => {
+    if (!responseUnitsFromProps) {
+      const fetchResponders = async () => {
+        setLoadingResponders(true);
+        try {
+          const responders = await getResponders();
+          if (responders.length > 0) {
+            // Create a map of emergency IDs to responder IDs
+            const emergencyToResponderMap: Record<string, string> = {};
+
+            // Convert responders to response units format
+            const units: ResponseUnit[] = responders.map((responder) => {
+              // If responder is responding to an emergency, add to the map
+              if (
+                responder.status === "responding" &&
+                responder.responding_to
+              ) {
+                emergencyToResponderMap[responder.responding_to] = responder.id;
+              }
+
+              return {
+                id: responder.id,
+                type:
+                  (responder.type as "medical" | "fire" | "police") ||
+                  "medical",
+                name: responder.name,
+                location: {
+                  lat: 9.6282 + Math.random() * 0.01,
+                  lng: 124.0935 + Math.random() * 0.01,
+                }, // Random location near Bilar
+                status: responder.status as
+                  | "available"
+                  | "responding"
+                  | "unavailable",
+                respondingTo: responder.responding_to,
+                phone: responder.phone || undefined,
+                email: responder.email,
+              };
+            });
+
+            setEmergencyResponderMap(emergencyToResponderMap);
+            setResponderUnits(units);
+          }
+        } catch (error) {
+          console.error("Error fetching responders:", error);
+        } finally {
+          setLoadingResponders(false);
+        }
+      };
+
+      fetchResponders();
+    }
+  }, [responseUnitsFromProps]);
   const [selectedEmergency, setSelectedEmergency] =
     useState<EmergencyLocation | null>(null);
   const [filters, setFilters] = useState({
@@ -224,25 +294,91 @@ const EmergencyMap = ({
     }
   };
 
-  const handleUpdateEmergencyStatus = (status: string) => {
+  const handleUpdateEmergencyStatus = async (status: string) => {
     if (selectedEmergency) {
-      // In a real app, this would call an API to update the status
-      console.log(
-        `Updating emergency ${selectedEmergency.id} status to ${status}`,
-      );
+      try {
+        // In a real app, this would call an API to update the status
+        console.log(
+          `Updating emergency ${selectedEmergency.id} status to ${status}`,
+        );
 
-      // For demo purposes, update the local state
-      const updatedEmergencies = emergencies.map((e) =>
-        e.id === selectedEmergency.id ? { ...e, status } : e,
-      );
-      // This would typically be handled by a state management system
-      alert(`Emergency status updated to: ${status}`);
+        // For demo purposes, update the local state
+        const updatedEmergencies = emergencies.map((e) =>
+          e.id === selectedEmergency.id ? { ...e, status } : e,
+        );
+
+        // Update the selected emergency
+        setSelectedEmergency({
+          ...selectedEmergency,
+          status: status as "pending" | "responding" | "resolved",
+        });
+
+        // Close the dialog after successful update
+        setShowEmergencyDetails(false);
+
+        // Show success message
+        alert(`Emergency status updated to: ${status}`);
+
+        // In a real implementation, we would reload data from the server
+      } catch (error) {
+        console.error("Error updating emergency status:", error);
+        alert("An error occurred while updating the emergency status.");
+      }
     }
   };
 
-  const handleAssignResponder = () => {
-    // In a real app, this would open a dialog to select a responder
-    alert("This would open a responder selection dialog");
+  const handleAssignResponder = async (responderId: string) => {
+    if (!selectedEmergency) {
+      console.error("No emergency selected for assignment");
+      alert("No emergency selected. Please select an emergency first.");
+      return;
+    }
+
+    try {
+      const emergencyId = selectedEmergency.id;
+      console.log(
+        `Attempting to assign responder ${responderId} to emergency ${emergencyId}`,
+      );
+
+      // Call the database function to assign the responder
+      const success = await assignResponderToEmergency(
+        emergencyId,
+        responderId,
+      );
+
+      if (success) {
+        console.log("Assignment successful, updating UI");
+
+        // Update the emergency-responder mapping
+        setEmergencyResponderMap((prev) => ({
+          ...prev,
+          [emergencyId]: responderId,
+        }));
+
+        // Update the responder units to show they're responding to this emergency
+        const updatedResponderUnits = responderUnits.map((unit) =>
+          unit.id === responderId
+            ? { ...unit, status: "responding", respondingTo: emergencyId }
+            : unit,
+        );
+        setResponderUnits(updatedResponderUnits);
+
+        // Update the selected emergency status
+        setSelectedEmergency({
+          ...selectedEmergency,
+          status: "responding",
+        });
+
+        alert("Responder successfully assigned to the emergency.");
+        setShowEmergencyDetails(false); // Close the dialog after successful assignment
+      } else {
+        console.error("Assignment returned false");
+        alert("Failed to assign responder. Please try again.");
+      }
+    } catch (error) {
+      console.error("Error assigning responder:", error);
+      alert("An error occurred while assigning the responder.");
+    }
   };
 
   return (
@@ -378,7 +514,7 @@ const EmergencyMap = ({
 
               {/* Map overlay with emergency information */}
               <div className="absolute top-2 left-2 bg-white/90 backdrop-blur-sm p-2 rounded-lg shadow-md text-xs">
-                <p className="font-medium">Bilar, Bohol (6319)</p>
+                <p className="font-medium">Bilar, Bohol (6317)</p>
                 <p className="text-muted-foreground">
                   Showing {emergencies.length} emergencies and{" "}
                   {responseUnits.length} response units
@@ -688,7 +824,11 @@ const EmergencyMap = ({
                           Responder:{" "}
                           {responseUnits.find(
                             (unit) => unit.respondingTo === emergency.id,
-                          )?.name || "Unknown"}
+                          )?.name ||
+                            responderUnits.find(
+                              (unit) => unit.respondingTo === emergency.id,
+                            )?.name ||
+                            "Unknown"}
                         </p>
                         <p>ETA: ~10 minutes</p>
                       </div>
@@ -909,8 +1049,60 @@ const EmergencyMapWithDialogs = (props: EmergencyMapProps) => {
               setShowMessageDialog(true);
             }
           }}
-          onAssignResponder={() => {
-            alert("This would open a responder selection dialog");
+          onAssignResponder={async (responderId) => {
+            if (selectedEmergency && responderId) {
+              try {
+                console.log(
+                  `EmergencyMapWithDialogs: Assigning responder ${responderId} to emergency ${selectedEmergency.id}`,
+                );
+
+                // Call the database function to assign the responder
+                const success = await assignResponderToEmergency(
+                  selectedEmergency.id,
+                  responderId,
+                );
+
+                if (success) {
+                  console.log(
+                    "Assignment successful in EmergencyMapWithDialogs",
+                  );
+
+                  // Update the selected emergency status locally
+                  setSelectedEmergency({
+                    ...selectedEmergency,
+                    status: "responding",
+                  });
+
+                  // Close the dialog after successful assignment
+                  setShowEmergencyDetails(false);
+
+                  // Show success message
+                  alert("Responder successfully assigned to the emergency.");
+
+                  // Force reload the page to refresh all data
+                  window.location.reload();
+                } else {
+                  console.error(
+                    "Assignment returned false in EmergencyMapWithDialogs",
+                  );
+                  alert("Failed to assign responder. Please try again.");
+                }
+              } catch (error) {
+                console.error(
+                  "Error assigning responder in EmergencyMapWithDialogs:",
+                  error,
+                );
+                alert("An error occurred while assigning the responder.");
+              }
+            } else {
+              console.error("Missing emergency or responder ID", {
+                emergency: selectedEmergency,
+                responderId,
+              });
+              alert(
+                "Missing emergency or responder information. Please try again.",
+              );
+            }
           }}
           onUpdateStatus={(status) => {
             alert(`Emergency status updated to: ${status}`);
